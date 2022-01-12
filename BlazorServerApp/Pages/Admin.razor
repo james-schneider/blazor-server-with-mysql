@@ -1,0 +1,226 @@
+﻿@page "/admin"
+
+@using DataAccess
+@using BlazorServerApp.Models
+
+@inject IMySQLDataAccess _data
+@inject IConfiguration _config
+
+<div class="container">
+    <section id="avail-appt-section">
+        <h3>Curent Available Appointments</h3>
+        @if (availableAppointments == null)
+        {
+            <p><em>Loading ...</em></p>
+        }
+        else
+        {
+            <table class="table table-striped">
+                <thead style="background-color:#141e5e; color:white;">
+                    <tr>
+                        <th>Start Time</th>
+                        <th>End Time</th>
+                        <th>Reserved</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var a in availableAppointments)
+                    {
+                        <tr>
+                            <td>@a.StartTime.ToLocalTime()</td>
+                            <td>@a.EndTime.ToLocalTime()</td>
+                            <td>@a.Reserved</td>
+                            <td>
+                                @if(@a.Reserved == false)
+                                {
+                                    <span id="deleteAppt" @onclick="() => DeleteAppointment(a.Id)" class="oi oi-x me-3"></span>
+                                    <span id="editAppt" @onclick="() => EditAppointment(a.Id)" class="oi oi-pencil"></span>
+                                }
+                            </td>
+                        </tr>
+
+                    }
+                </tbody>
+            </table>
+            @if(deleteErrorMessage)
+            {
+                <div class="alert alert-danger" role="alert">
+                  Delete Action Failed!
+                </div>
+                <p>@dbErrorMessage</p>
+                  
+
+            }
+        }
+    </section>
+
+    <section id="create-appt" class="mt-5">
+        @if (createStatus)
+        {
+            <h3>Add New Available Appointment</h3>
+            <EditForm Model="@newAppointment" OnValidSubmit="@InsertAppointment">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+                <div class="mb-3">
+                    <label for="date" class="form-label">Date</label>
+                    <input type="date" class="form-control" id="date" @bind-value="addAppointment.Date">
+                </div>
+                <div class="mb-3">
+                    <label for="start-time" class="form-label">Start Time</label>
+                    <input type="time" class="form-control" id="start-time" @bind-value="addAppointment.StartTime">
+                </div>
+                <div class="mb-3">
+                    <label for="end-time" class="form-label">End Time</label>
+                    <input type="time" class="form-control" id="end-time" @bind-value="addAppointment.EndTime">
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button type="submit" class="btn alert-primary mt-3">Add</button>
+                </div>
+
+            </EditForm>
+        }
+    </section>
+
+    <section id="edit-appt" class="mt-5">
+        @if(editStatus)
+        {
+            <h3>Edit Existing Available Appointment</h3>
+            <EditForm Model="@newAppointment" OnValidSubmit="@UpdateAppointment">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+                <div class="mb-3">
+                    <label for="date" class="form-label">Date</label>
+                    <input type="date" class="form-control" id="date" @bind-value="addAppointment.Date">
+                </div>
+                <div class="mb-3">
+                    <label for="start-time" class="form-label">Start Time</label>
+                    <input type="time" class="form-control" id="start-time" @bind-value="addAppointment.StartTime">
+                </div>
+                <div class="mb-3">
+                    <label for="end-time" class="form-label">End Time</label>
+                    <input type="time" class="form-control" id="end-time" @bind-value="addAppointment.EndTime">
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button type="submit" class="btn alert-primary mt-3">Update</button>
+                </div>
+
+            </EditForm>
+
+        }
+    </section>
+</div>
+
+@code {
+    List<AvailableAppointmentModel> availableAppointments;
+    List<AvailableAppointmentModel> thisAppointment;
+
+    private AvailableAppointmentModel newAppointment = new AvailableAppointmentModel();
+
+
+    // booleans to determine what to display in the UI
+    bool createStatus = true;
+    bool editStatus = false;
+    bool deleteErrorMessage = false;
+
+    // error message for db delete exception
+    string dbErrorMessage = "";
+
+    // variable to keep track of the current appt being edited
+    int apptBeingEdited;
+
+
+    public class AddAppointment
+    {
+        public DateTime Date { get; set; }
+        public DateTime StartTime { get; set; }
+        public DateTime EndTime { get; set; }
+    }
+
+    private AddAppointment addAppointment = new AddAppointment();
+
+    // Load the initial data
+    protected override async Task OnInitializedAsync()
+    {
+        string sql = "SELECT * FROM available_appointment";
+        availableAppointments = await _data.LoadData<AvailableAppointmentModel, dynamic>(sql, new { }, _config.GetConnectionString("MySQLConnection"));
+    }
+
+    // Insert Appointments
+    private async Task InsertAppointment()
+    {
+        AvailableAppointmentModel a = new AvailableAppointmentModel
+        {
+            StartTime = new DateTime(addAppointment.Date.Year, addAppointment.Date.Month, addAppointment.Date.Day, addAppointment.StartTime.Hour, addAppointment.StartTime.Minute, 0).ToUniversalTime(),
+            EndTime = new DateTime(addAppointment.Date.Year, addAppointment.Date.Month, addAppointment.Date.Day, addAppointment.EndTime.Hour, addAppointment.EndTime.Minute, 0).ToUniversalTime(),
+            StartDate = addAppointment.Date,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            Reserved = false
+
+        };
+
+        string sql = "INSERT INTO available_appointment (StartTime, EndTime, StartDate, CreatedAt, UpdatedAt, Reserved) VALUES (@StartTime, @EndTime, @StartDate, @CreatedAt, @UpdatedAt, @Reserved);";
+        await _data.SaveData(sql, a, _config.GetConnectionString("MySqlConnection"));
+        await OnInitializedAsync();
+        a = new AvailableAppointmentModel();
+        addAppointment = new AddAppointment();
+    }
+
+    // Delete Appointment
+    private async Task DeleteAppointment(int id)
+    {
+        string sql = "DELETE FROM available_appointment WHERE Id = @Id";
+        try
+        {
+            await _data.SaveData(sql, new { Id = id}, _config.GetConnectionString("MySqlConnection"));
+            deleteErrorMessage = false;
+            await OnInitializedAsync();
+        }
+        catch(Exception ex)
+        {
+            deleteErrorMessage = true;
+            dbErrorMessage = ex.ToString();
+        }
+    }
+
+    //Edit Appointment
+    private async Task EditAppointment(int id)
+    {
+        createStatus = false;
+        editStatus = true;
+
+        string sql = "SELECT * FROM available_appointment WHERE Id = @Id";
+        thisAppointment = await _data.LoadData<AvailableAppointmentModel, dynamic>(sql, new { Id = id }, _config.GetConnectionString("MySqlConnection"));
+        apptBeingEdited = id;
+
+        addAppointment.StartTime = thisAppointment[0].StartTime.ToLocalTime();
+        addAppointment.EndTime = thisAppointment[0].EndTime.ToLocalTime();
+        addAppointment.Date = thisAppointment[0].StartDate;
+    }
+
+    // Update Appointment
+    private async Task UpdateAppointment()
+    {
+        AvailableAppointmentModel a = new AvailableAppointmentModel
+        {
+            StartTime = new DateTime(addAppointment.Date.Year, addAppointment.Date.Month, addAppointment.Date.Day, addAppointment.StartTime.Hour, addAppointment.StartTime.Minute, 0).ToUniversalTime(),
+            EndTime = new DateTime(addAppointment.Date.Year, addAppointment.Date.Month, addAppointment.Date.Day, addAppointment.EndTime.Hour, addAppointment.EndTime.Minute, 0).ToUniversalTime(),
+            StartDate = addAppointment.Date,
+            UpdatedAt = DateTime.UtcNow,
+            Id = apptBeingEdited
+        };
+
+        string sql = "UPDATE available_appointment SET StartTime = @StartTime, EndTime = @EndTime, StartDate = @StartDate, UpdatedAt = @UpdatedAt WHERE Id = @Id;";
+        await _data.SaveData(sql, a, _config.GetConnectionString("MySqlConnection"));
+        await OnInitializedAsync();
+
+        createStatus = true;
+        editStatus = false;
+
+    }
+
+
+}

@@ -1,0 +1,258 @@
+﻿@page "/"
+
+@using DataAccess
+@using BlazorServerApp.Models
+
+@inject IMySQLDataAccess _data
+@inject IConfiguration _config
+
+<div class="container">
+    <section id="appt-section">
+        <h3>My Scheduled Appointments</h3>
+        @if (appointments == null)
+        {
+            <p><em>Loading ...</em></p>
+        }
+        else
+        {
+            <table class="table table-striped">
+                <thead style="background-color:#141e5e; color:white;">
+                    <tr>
+                        <th>Name</th>
+                        <th>Reason</th>
+                        <th>Start Time</th>
+                        <th>End Time</th>
+                        <th>Cancel</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var a in appointments)
+                    {
+                        <tr>
+                            <td>@a.FullName</td>
+                            <td>@a.Reason</td>
+                            <td>@a.StartTime.ToLocalTime()</td>
+                            <td>@a.EndTime.ToLocalTime()</td>
+                            <td>
+                                <span id="deleteAppt" @onclick="() => DeleteAppointment(a.Id, a.AvailableAppointmentId)" class="oi oi-x me-3"></span>    
+                          
+                            </td>
+                        </tr>
+
+                    }
+                </tbody>
+            </table>
+        }
+    </section>
+
+    <section id="step-1">
+        <svg xmlns="http://www.w3.org/2000/svg" width="75" height="75" fill="currentColor" class="bi bi-tools" viewBox="0 0 16 16">
+      <path d="M1 0 0 1l2.2 3.081a1 1 0 0 0 .815.419h.07a1 1 0 0 1 .708.293l2.675 2.675-2.617 2.654A3.003 3.003 0 0 0 0 13a3 3 0 1 0 5.878-.851l2.654-2.617.968.968-.305.914a1 1 0 0 0 .242 1.023l3.356 3.356a1 1 0 0 0 1.414 0l1.586-1.586a1 1 0 0 0 0-1.414l-3.356-3.356a1 1 0 0 0-1.023-.242L10.5 9.5l-.96-.96 2.68-2.643A3.005 3.005 0 0 0 16 3c0-.269-.035-.53-.102-.777l-2.14 2.141L12 4l-.364-1.757L13.777.102a3 3 0 0 0-3.675 3.68L7.462 6.46 4.793 3.793a1 1 0 0 1-.293-.707v-.071a1 1 0 0 0-.419-.814L1 0zm9.646 10.646a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708l-3-3a.5.5 0 0 1 0-.708zM3 11l.471.242.529.026.287.445.445.287.026.529L5 13l-.242.471-.026.529-.445.287-.287.445-.529.026L3 15l-.471-.242L2 14.732l-.287-.445L1.268 14l-.026-.529L1 13l.242-.471.026-.529.445-.287.287-.445.529-.026L3 11z"/>
+    </svg>
+
+        <p class="lead">Are you ready to schedule a new appointment?</p>
+        <h3>Step 1: Select a Date</h3>
+        <p class="text-muted">If there are any appointments, they will be displayed under step 2.</p>
+        <input type="date" @key="toggle" @onchange="ShowAvailableAppointments"/>
+    </section>
+
+    <section id="step-2">
+        @if (stepTwoReady)
+        {
+            <h3>Step 2: Select the time that you would like</h3>
+            @if (availableAppointments == null)
+            {
+                <p><em>Available appointments for the date selected will be shown here</em></p>
+
+            }
+            else
+            {
+                @foreach (var a in availableAppointments)
+                {
+                    <ul class="available-appt-list">
+                        @if (a.StartTime.ToLocalTime() > DateTime.Now && a.Reserved != true)
+                        {
+                            <li class="not-reserved">
+                                @a.StartTime.ToLocalTime().ToString("g")
+                                <button @onclick="() => SelectAppointment(a.StartTime, a.Id)" class="btn btn-primary">Reserve</button>
+                            </li>
+                        }
+                        else if (a.StartTime.ToLocalTime() > DateTime.Now && a.Reserved == true)
+                        {
+                            <li class="already-reserved">
+                                @a.StartTime.ToLocalTime().ToString("g")
+                                <span class="oi oi-ban"></span>&nbsp; Already Reserved
+                            </li>
+                        }
+                    </ul>
+
+                }
+            }
+        }
+
+        @if (noAppointments == true)
+        {
+            <div class="alert alert-info" role="alert">
+                There are no appointments for the selected date
+            </div>
+        }
+    </section>
+
+    <section id="step-3">
+        @if(stepThreeReady)
+        {
+            <h3>Step 3: Enter your information and submit</h3>
+            <EditForm Model="@newAppointment" OnValidSubmit="@SaveAppointment">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+                <label for="name" class="form-label">Full Name</label>
+                <InputText class="form-control mb-2" id="fullName" @bind-Value="newAppointment.FullName" />
+
+                <label for="reason" class="form-label">Reason</label>
+                <InputText class="form-control mb-2" id="reason" @bind-Value="newAppointment.Reason" />
+
+                <InputDate hidden=true id="startTime" @bind-Value="newAppointment.StartTime" />
+
+                <label for="appointmentTime" class="form-label">Appointment Time</label>
+                <input class="form-control mb-2" disabled value="@selectedDateTime.ToLocalTime()" />
+
+                <div class="d-grid gap-2">
+                    <button type="submit" class="btn alert-primary mt-3">Add</button>
+                </div>
+
+            </EditForm>
+        }
+    </section>
+</div>
+
+
+
+@code {
+    List<AppointmentModel> appointments;
+    List<AvailableAppointmentModel> availableAppointments;
+    List<AvailableAppointmentModel> thisAppointment;
+
+    private AppointmentModel newAppointment = new AppointmentModel();
+
+    // To track the date a user selects
+    object dateValue;
+
+    // To track the date and time that a user wants to reserve
+    DateTime selectedDateTime;
+
+    // Id that will be used to keep track fo the currently selected appointment
+    // of available appointments
+    int selectedAvailableId;
+
+    // Booleans for changing the UI
+    bool stepTwoReady = false;
+    bool stepThreeReady = false;
+    bool noAppointments = false;
+
+    bool toggle = false;
+
+    // Load the initial data
+    protected override async Task OnInitializedAsync()
+    {
+        string sql = "SELECT * FROM appointment";
+        appointments = await _data.LoadData<AppointmentModel, dynamic>(sql, new { }, _config.GetConnectionString("MySQLConnection"));
+    }
+
+    private async Task ShowAvailableAppointments(ChangeEventArgs args)
+    {
+        dateValue = args.Value;
+        string sql = "SELECT * FROM available_appointment WHERE StartDate = @date;";
+        availableAppointments = await _data.LoadData<AvailableAppointmentModel, dynamic>(sql, new { date = @dateValue }, _config.GetConnectionString("MySQLConnection"));
+
+        availableAppointments = availableAppointments.OrderBy(x => x.StartTime).ToList();
+
+        stepTwoReady = true;
+
+        if (availableAppointments.Count == 0)
+        {
+            noAppointments = true;
+        }
+        else noAppointments = false;
+    }
+
+    private async Task SelectAppointment(DateTime dateTime, int availableId)
+    {
+        selectedDateTime = dateTime;
+        newAppointment.StartTime = dateTime;
+        stepThreeReady = true;
+        selectedAvailableId = availableId;
+
+        string sql = "SELECT * FROM available_appointment WHERE Id = @Id;";
+        thisAppointment = await _data.LoadData<AvailableAppointmentModel, dynamic>(sql, new { Id = availableId }, _config.GetConnectionString("MySQLConnection"));
+
+        newAppointment.EndTime = thisAppointment[0].EndTime;
+
+    }
+
+    private async Task SaveAppointment()
+    {
+        AppointmentModel a = new AppointmentModel
+        {
+            AvailableAppointmentId = selectedAvailableId,
+            FullName = newAppointment.FullName,
+            Reason = newAppointment.Reason,
+            StartTime = newAppointment.StartTime.ToUniversalTime(),
+            EndTime = newAppointment.EndTime.ToUniversalTime(),
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        string sql = "INSERT INTO appointment (AvailableAppointmentId, FullName, Reason, StartTime, EndTime, CreatedAt, UpdatedAt) VALUES (@AvailableAppointmentId, @FullName, @Reason, @StartTime, @EndTime, @CreatedAt, @UpdatedAt);";
+        await _data.SaveData(sql, a, _config.GetConnectionString("MySQLConnection"));
+
+        await ReserveAvailableAppointment();
+
+        stepTwoReady = false;
+        stepThreeReady = false;
+
+        // reset date input
+        toggle = !toggle;
+
+        // reset newAppointment
+        newAppointment = new AppointmentModel();
+
+        await OnInitializedAsync();
+
+    }
+
+    private async Task ReserveAvailableAppointment()
+    {
+        string sql = "UPDATE available_appointment SET RESERVED = true WHERE Id = @Id";
+        await _data.SaveData(sql, new { Id = selectedAvailableId }, _config.GetConnectionString("MySQLConnection"));
+        await OnInitializedAsync();
+
+    }
+
+
+
+    private async Task DeleteAppointment(int id, int cancelId)
+    {
+        string sql = "DELETE FROM appointment WHERE Id = @Id";
+        await _data.SaveData(sql, new { Id = id }, _config.GetConnectionString("MySQLConnection"));
+
+        await CancelReservationForAvailableAppointment(cancelId);
+
+        // reset the date input
+        toggle = !toggle;
+        stepTwoReady = false;
+        stepThreeReady = false;
+
+        await OnInitializedAsync();
+    }
+
+    private async Task CancelReservationForAvailableAppointment(int cancelId)
+    {
+        string sql = "UPDATE available_appointment SET RESERVED = false WHERE Id = @Id";
+        await _data.SaveData(sql, new { Id = cancelId }, _config.GetConnectionString("MySQLConnection"));
+        await OnInitializedAsync();
+
+    }
+
+
+
+}
